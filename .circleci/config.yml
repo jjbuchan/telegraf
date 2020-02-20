@@ -12,7 +12,14 @@ defaults:
   go-1_13: &go-1_13
     docker:
       - image: 'quay.io/influxdb/telegraf-ci:1.13.5'
-
+  mac: &mac
+    macos:
+      xcode: 11.3.1
+    working_directory: '~/go/src/github.com/influxdata/telegraf'
+    environment:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      GOFLAGS: -p=8
+  
 version: 2
 jobs:
   deps:
@@ -30,6 +37,24 @@ jobs:
             - '/go/pkg/mod'
       - persist_to_workspace:
           root: '/go'
+          paths:
+            - '*'
+  macdeps:
+    <<: [ *mac ]
+    steps:
+      - run: 'brew install go@1.13'
+      - checkout
+      - restore_cache:
+          key: mac-go-mod-v1-{{ checksum "go.sum" }}
+      - run: 'make deps'
+      - run: 'make tidy'
+      - save_cache:
+          name: 'go module cache'
+          key: mac-go-mod-v1-{{ checksum "go.sum" }}
+          paths:
+            - '~/go/pkg/mod'
+      - persist_to_workspace:
+          root: '~/go'
           paths:
             - '*'
 
@@ -65,7 +90,15 @@ jobs:
       - run: 'GOARCH=386 make'
       - run: 'GOARCH=386 make check'
       - run: 'GOARCH=386 make test'
-
+  test-go-1.13-darwin:
+    <<: [ *mac ]
+    steps:
+      - attach_workspace:
+          at: '~/go'
+      - run: 'make'
+      - run: 'make check'
+      - run: 'make test'
+  
   package:
     <<: [ *defaults, *go-1_13 ]
     steps:
@@ -98,6 +131,10 @@ workflows:
   version: 2
   check:
     jobs:
+      - 'macdeps':
+          filters:
+            tags:
+              only: /.*/
       - 'deps':
           filters:
             tags:
@@ -125,6 +162,12 @@ workflows:
             - 'deps'
           filters:
             tags:
+              only: /.*/
+      - 'test-go-1.13-darwin':
+          requires:
+            - 'macdeps'
+          filters:
+            tags: # only runs on tags if you specify this filter
               only: /.*/
       - 'package':
           requires:
